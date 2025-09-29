@@ -1,0 +1,95 @@
+
+# Author:
+#   Yuanqing Wu, DGUT, P.R.China
+#
+# History:
+#   2025-5-9 by Yuanqing Wu
+#
+# Support:
+#   wuyuanq@gmail.com
+
+PROG = DBF_hpc
+defaults: $(PROG)
+
+FCC = mpif90
+#FCC = gfortran
+GCC = gcc
+
+FCFLAGS = -O3 -fdefault-real-8 -fcheck=bounds
+FCFLAGS = -O3 -g
+FCFLAGS = -O3 -fbounds-check
+FCFLAGS = -O3 -fallow-argument-mismatch 
+
+SOLVER = LAPACK
+SOLVER = UMFPACK
+#SOLVER = MUMPS
+#SOLVER = HYPRE
+
+ifeq ($(SOLVER), LAPACK)
+SOLVERFLAGS = -DLAPACK
+NP = 1
+else ifeq ($(SOLVER), UMFPACK)
+SOLVERFLAGS = -DUMFPACK
+NP = 1
+else ifeq ($(SOLVER), MUMPS)
+SOLVERFLAGS = -DMUMPS
+NP = 1
+else ifeq ($(SOLVER), HYPRE)
+SOLVERFLAGS = -DHYPRE
+NP = 1
+endif
+
+vpath RST_proceAlloc.F90 ../../../CompositionalFlow/Hpc
+ifeq ($(SOLVER), UMFPACK)
+vpath umf4_f77wrapper.c /Users/Shared/SuiteSparse-dev/UMFPACK/Demo/
+endif
+
+FSRCS = RST_proceAlloc.F90 DBF_globalData.F90 \
+DBF_constructMat.F90 DBF_resi.F90 DBF_export2tecplot.F90 \
+DBF_export2Matlab.F90 DBF_exportResults.F90 DBF_driver.F90 DBF_infile.F90
+
+ifeq ($(SOLVER), LAPACK)
+LIBS = -L/usr/lib -llapack
+else ifeq ($(SOLVER), UMFPACK)
+LIBS = -L/opt/local/lib -lumfpack
+else ifeq ($(SOLVER), MUMPS)
+LIBS = -L/opt/local/lib -ldmumps -lmumps_common -lpord -lmetis -lscotch -lopenblas
+else ifeq ($(SOLVER), HYPRE)
+LIBS = -L/Users/Shared/hypre-master/src/hypre/lib -lHYPRE
+endif
+
+ifeq ($(SOLVER), LAPACK)
+INCLUDE =
+else ifeq ($(SOLVER), UMFPACK)
+INCLUDE = -I/opt/local/include
+else ifeq ($(SOLVER), MUMPS)
+INCLUDE = -I/opt/local/include
+else ifeq ($(SOLVER), HYPRE)
+INCLUDE = -I/Users/Shared/hypre-master/src/hypre/include
+endif
+    
+%.o: %.F90
+	$(FCC) -c $(FCFLAGS) $(SOLVERFLAGS) $(INCLUDE) $^ -o $@
+
+FOBJS = $(FSRCS:.F90=.o)
+
+ifeq ($(SOLVER), UMFPACK)
+umf4_f77wrapper.o: umf4_f77wrapper.c
+	$(GCC) -c $(INCLUDE) $^ -o $@
+COBJS = umf4_f77wrapper.o
+else
+COBJS =
+endif
+
+$(PROG): $(FOBJS) $(COBJS)
+	$(FCC) $(FCFLAGS) $(SOLVERFLAGS) $(FOBJS) $(COBJS) $(LIBS) -o $(PROG)
+
+all: $(PROG)
+
+.PHONY: clean
+
+clean:
+	rm -rf *.mod *.o $(PROG)
+
+run: ${PROG} 
+	mpirun -np $(NP) ./$(PROG)
